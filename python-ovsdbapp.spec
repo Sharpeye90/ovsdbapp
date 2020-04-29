@@ -1,5 +1,5 @@
 # Macros for py2/py3 compatibility
-%if 0%{?fedora} || 0%{?rhel} > 7
+%if 0%{?fedora} || 0%{?rhel} >= 7
 %global pyver %{python3_pkgversion}
 %else
 %global pyver 2
@@ -13,7 +13,7 @@
 
 %global library ovsdbapp
 %global module ovsdbapp
-%global with_doc 1
+%global with_doc 0
 
 %global common_desc \
 A library for writing Open vSwitch OVSDB-based applications.
@@ -22,9 +22,11 @@ A library for writing Open vSwitch OVSDB-based applications.
 Python OVSDB Application Library tests. \
 This package contains Python OVSDB Application Library test files.
 
+%bcond_with tests
+
 Name:       python-%{library}
 Version:    0.17.2
-Release:    1%{?dist}
+Release:    1.CROC1%{?dist}
 Summary:    Python OVSDB Application Library
 License:    ASL 2.0
 URL:        http://launchpad.net/%{library}/
@@ -34,7 +36,6 @@ Source0:    http://tarballs.openstack.org/%{library}/%{library}-%{upstream_versi
 BuildArch:  noarch
 
 BuildRequires:  git
-BuildRequires:  openstack-macros
 
 %package -n python%{pyver}-%{library}
 Summary:    Python OVSDB Application Library
@@ -43,21 +44,20 @@ Requires:   python%{pyver}-openvswitch
 Requires:   python%{pyver}-pbr
 Requires:   python%{pyver}-six
 Requires:   python%{pyver}-netaddr >= 0.7.18
+Obsoletes:  python2-%{library}
 
 BuildRequires:  python%{pyver}-devel
 BuildRequires:  python%{pyver}-pbr
 BuildRequires:  python%{pyver}-setuptools
 BuildRequires:  python%{pyver}-mock
 BuildRequires:  python%{pyver}-openvswitch
-BuildRequires:  python%{pyver}-oslotest
-BuildRequires:  python%{pyver}-stestr
 BuildRequires:  python%{pyver}-netaddr >= 0.7.18
-BuildRequires:  python%{pyver}-testrepository
 
 %description -n python%{pyver}-%{library}
 %{common_desc}
 
 
+%if %{with tests}
 %package -n python%{pyver}-%{library}-tests
 Summary:   Python OVSDB Application Library Tests
 Requires:  python%{pyver}-%{library} = %{version}-%{release}
@@ -65,9 +65,13 @@ Requires:  python%{pyver}-fixtures
 Requires:  python%{pyver}-mock
 Requires:  python%{pyver}-oslotest
 Requires:  python%{pyver}-testrepository
+BuildRequires:  python%{pyver}-oslotest
+BuildRequires:  python%{pyver}-stestr
+BuildRequires:  python%{pyver}-testrepository
 
 %description -n python%{pyver}-%{library}-tests
 %{common_desc_tests}
+%endif
 
 %if 0%{?with_doc}
 %package -n python-%{library}-doc
@@ -89,11 +93,8 @@ This package contains the documentation.
 %prep
 %autosetup -n %{library}-%{upstream_version} -S git
 
-# Let's handle dependencies ourselves
-%py_req_cleanup
-
 %build
-%{pyver_build}
+%{py3_build}
 
 %if 0%{?with_doc}
 # generate html docs
@@ -103,20 +104,24 @@ rm -rf doc/build/html/.{doctrees,buildinfo}
 %endif
 
 %install
-%{pyver_install}
+%{py3_install}
 
+%if %{with tests}
 %check
 PYTHON=%{pyver_bin} OS_TEST_PATH=./ovsdbapp/tests/unit stestr-%{pyver} run
+%endif
 
 %files -n python%{pyver}-%{library}
 %doc README.rst
 %license LICENSE
-%{pyver_sitelib}/%{module}
-%{pyver_sitelib}/%{module}-*.egg-info
-%exclude %{pyver_sitelib}/%{module}/tests
+%{python3_sitelib}/%{module}
+%{python3_sitelib}/%{module}-*.egg-info
+%exclude %{python3_sitelib}/%{module}/tests
 
+%if %{with tests}
 %files -n python%{pyver}-%{library}-tests
-%{pyver_sitelib}/%{module}/tests
+%{python3_sitelib}/%{module}/tests
+%endif
 
 %if 0%{?with_doc}
 %files -n python-%{library}-doc
