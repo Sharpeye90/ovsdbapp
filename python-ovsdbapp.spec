@@ -26,7 +26,7 @@ This package contains Python OVSDB Application Library test files.
 
 Name:       python-%{library}
 Version:    0.17.2
-Release:    1.CROC1%{?dist}
+Release:    1.CROC2%{?dist}
 Summary:    Python OVSDB Application Library
 License:    ASL 2.0
 URL:        http://launchpad.net/%{library}/
