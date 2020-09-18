@@ -41,17 +41,17 @@ BuildRequires:  git
 Summary:    Python OVSDB Application Library
 %{?python_provide:%python_provide python%{pyver}-%{library}}
 Requires:   python%{pyver}-openvswitch
-Requires:   python%{pyver}-pbr
-Requires:   python%{pyver}-six
-Requires:   python%{pyver}-netaddr >= 0.7.18
+Requires:   python36-pbr
+Requires:   python36-six
+Requires:   python36-netaddr >= 0.7.18
 Obsoletes:  python2-%{library}
 
 BuildRequires:  python%{pyver}-devel
-BuildRequires:  python%{pyver}-pbr
+BuildRequires:  python36-pbr
 BuildRequires:  python%{pyver}-setuptools
-BuildRequires:  python%{pyver}-mock
+BuildRequires:  python36-mock
 BuildRequires:  python%{pyver}-openvswitch
-BuildRequires:  python%{pyver}-netaddr >= 0.7.18
+BuildRequires:  python36-netaddr >= 0.7.18
 
 %description -n python%{pyver}-%{library}
 %{common_desc}
