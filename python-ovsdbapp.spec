@@ -4,7 +4,7 @@
 
 %global library ovsdbapp
 %global module ovsdbapp
-%global with_doc 1
+%global with_doc 0
 
 %global common_desc \
 A library for writing Open vSwitch OVSDB-based applications.
@@ -13,9 +13,11 @@ A library for writing Open vSwitch OVSDB-based applications.
 Python OVSDB Application Library tests. \
 This package contains Python OVSDB Application Library test files.
 
+%bcond_with tests
+
 Name:       python-%{library}
 Version:    1.6.0
-Release:    1%{?dist}
+Release:    1.CROC1%{?dist}
 Summary:    Python OVSDB Application Library
 License:    ASL 2.0
 URL:        http://launchpad.net/%{library}/
@@ -35,7 +37,6 @@ BuildRequires:  /usr/bin/gpgv2
 %endif
 
 BuildRequires:  git
-BuildRequires:  openstack-macros
 
 %package -n python3-%{library}
 Summary:    Python OVSDB Application Library
@@ -49,33 +50,17 @@ BuildRequires:  python3-pbr
 BuildRequires:  python3-setuptools
 BuildRequires:  python3-mock
 BuildRequires:  python3-openvswitch
-BuildRequires:  python3-oslotest
-BuildRequires:  python3-stestr
 BuildRequires:  python3-netaddr >= 0.7.18
-BuildRequires:  python3-testrepository
 
 %description -n python3-%{library}
 %{common_desc}
 
-
-%package -n python3-%{library}-tests
-Summary:   Python OVSDB Application Library Tests
-Requires:  python3-%{library} = %{version}-%{release}
-Requires:  python3-fixtures
-Requires:  python3-mock
-Requires:  python3-oslotest
-Requires:  python3-testrepository
-
-%description -n python3-%{library}-tests
-%{common_desc_tests}
 
 %if 0%{?with_doc}
 %package -n python-%{library}-doc
 Summary:    Python OVSDB Application Library documentation
 
 BuildRequires: python3-sphinx
-BuildRequires: python3-sphinxcontrib-rsvgconverter
-BuildRequires: python3-openstackdocstheme
 
 %description -n python-%{library}-doc
 %{common_desc}
@@ -94,9 +79,6 @@ This package contains the documentation.
 %endif
 %autosetup -n %{library}-%{upstream_version} -S git
 
-# Let's handle dependencies ourselves
-%py_req_cleanup
-
 %build
 %{py3_build}
 
@@ -110,18 +92,12 @@ rm -rf doc/build/html/.{doctrees,buildinfo}
 %install
 %{py3_install}
 
-%check
-PYTHON=%{__python3} OS_TEST_PATH=./ovsdbapp/tests/unit stestr run
-
 %files -n python3-%{library}
 %doc README.rst
 %license LICENSE
 %{python3_sitelib}/%{module}
 %{python3_sitelib}/%{module}-*.egg-info
 %exclude %{python3_sitelib}/%{module}/tests
-
-%files -n python3-%{library}-tests
-%{python3_sitelib}/%{module}/tests
 
 %if 0%{?with_doc}
 %files -n python-%{library}-doc
