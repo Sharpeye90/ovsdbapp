@@ -1,14 +1,5 @@
-# Macros for py2/py3 compatibility
-%if 0%{?fedora} || 0%{?rhel} >= 7
-%global pyver %{python3_pkgversion}
-%else
-%global pyver 2
-%endif
-%global pyver_bin python%{pyver}
-%global pyver_sitelib %python%{pyver}_sitelib
-%global pyver_install %py%{pyver}_install
-%global pyver_build %py%{pyver}_build
-# End of macros for py2/py3 compatibility
+%{!?sources_gpg: %{!?dlrn:%global sources_gpg 1} }
+%global sources_gpg_sign 0x2426b928085a020d8a90d0d879ab7008d0896c8a
 %{!?upstream_version: %global upstream_version %{version}%{?milestone}}
 
 %global library ovsdbapp
@@ -25,60 +16,51 @@ This package contains Python OVSDB Application Library test files.
 %bcond_with tests
 
 Name:       python-%{library}
-Version:    0.17.2
-Release:    1.CROC2%{?dist}
+Version:    1.6.0
+Release:    1.CROC1%{?dist}
 Summary:    Python OVSDB Application Library
 License:    ASL 2.0
 URL:        http://launchpad.net/%{library}/
 
 Source0:    http://tarballs.openstack.org/%{library}/%{library}-%{upstream_version}.tar.gz
+# Required for tarball sources verification
+%if 0%{?sources_gpg} == 1
+Source101:        http://tarballs.openstack.org/%{library}/%{library}-%{upstream_version}.tar.gz.asc
+Source102:        https://releases.openstack.org/_static/%{sources_gpg_sign}.txt
+%endif
 
 BuildArch:  noarch
 
+# Required for tarball sources verification
+%if 0%{?sources_gpg} == 1
+BuildRequires:  /usr/bin/gpgv2
+%endif
+
 BuildRequires:  git
 
-%package -n python%{pyver}-%{library}
+%package -n python3-%{library}
 Summary:    Python OVSDB Application Library
-%{?python_provide:%python_provide python%{pyver}-%{library}}
-Requires:   python%{pyver}-openvswitch
-Requires:   python36-pbr
-Requires:   python36-six
-Requires:   python36-netaddr >= 0.7.18
-Obsoletes:  python2-%{library}
+%{?python_provide:%python_provide python3-%{library}}
+Requires:   python3-openvswitch
+Requires:   python3-pbr
+Requires:   python3-netaddr >= 0.7.18
 
-BuildRequires:  python%{pyver}-devel
-BuildRequires:  python36-pbr
-BuildRequires:  python%{pyver}-setuptools
-BuildRequires:  python36-mock
-BuildRequires:  python%{pyver}-openvswitch
-BuildRequires:  python36-netaddr >= 0.7.18
+BuildRequires:  python3-devel
+BuildRequires:  python3-pbr
+BuildRequires:  python3-setuptools
+BuildRequires:  python3-mock
+BuildRequires:  python3-openvswitch
+BuildRequires:  python3-netaddr >= 0.7.18
 
-%description -n python%{pyver}-%{library}
+%description -n python3-%{library}
 %{common_desc}
 
-
-%if %{with tests}
-%package -n python%{pyver}-%{library}-tests
-Summary:   Python OVSDB Application Library Tests
-Requires:  python%{pyver}-%{library} = %{version}-%{release}
-Requires:  python%{pyver}-fixtures
-Requires:  python%{pyver}-mock
-Requires:  python%{pyver}-oslotest
-Requires:  python%{pyver}-testrepository
-BuildRequires:  python%{pyver}-oslotest
-BuildRequires:  python%{pyver}-stestr
-BuildRequires:  python%{pyver}-testrepository
-
-%description -n python%{pyver}-%{library}-tests
-%{common_desc_tests}
-%endif
 
 %if 0%{?with_doc}
 %package -n python-%{library}-doc
 Summary:    Python OVSDB Application Library documentation
 
-BuildRequires: python%{pyver}-sphinx
-BuildRequires: python%{pyver}-openstackdocstheme
+BuildRequires: python3-sphinx
 
 %description -n python-%{library}-doc
 %{common_desc}
@@ -91,6 +73,10 @@ This package contains the documentation.
 
 
 %prep
+# Required for tarball sources verification
+%if 0%{?sources_gpg} == 1
+%{gpgverify}  --keyring=%{SOURCE102} --signature=%{SOURCE101} --data=%{SOURCE0}
+%endif
 %autosetup -n %{library}-%{upstream_version} -S git
 
 %build
@@ -98,30 +84,20 @@ This package contains the documentation.
 
 %if 0%{?with_doc}
 # generate html docs
-%{pyver_bin} setup.py build_sphinx
-# remove the sphinx-build-%{pyver} leftovers
+sphinx-build -b html doc/source doc/build/html
+# remove the sphinx-build leftovers
 rm -rf doc/build/html/.{doctrees,buildinfo}
 %endif
 
 %install
 %{py3_install}
 
-%if %{with tests}
-%check
-PYTHON=%{pyver_bin} OS_TEST_PATH=./ovsdbapp/tests/unit stestr-%{pyver} run
-%endif
-
-%files -n python%{pyver}-%{library}
+%files -n python3-%{library}
 %doc README.rst
 %license LICENSE
 %{python3_sitelib}/%{module}
 %{python3_sitelib}/%{module}-*.egg-info
 %exclude %{python3_sitelib}/%{module}/tests
-
-%if %{with tests}
-%files -n python%{pyver}-%{library}-tests
-%{python3_sitelib}/%{module}/tests
-%endif
 
 %if 0%{?with_doc}
 %files -n python-%{library}-doc
@@ -130,12 +106,12 @@ PYTHON=%{pyver_bin} OS_TEST_PATH=./ovsdbapp/tests/unit stestr-%{pyver} run
 %endif
 
 %changelog
-* Wed Feb 19 2020 RDO <dev@lists.rdoproject.org> 0.17.2-1
-- Update to 0.17.2
+* Mon Nov 09 2020 RDO <dev@lists.rdoproject.org> 1.6.0-1
+- Update to 1.6.0
 
-* Mon Dec 16 2019 RDO <dev@lists.rdoproject.org> 0.17.1-1
-- Update to 0.17.1
+* Wed Oct 21 2020 Joel Capitao <jcapitao@redhat.com> 1.5.0-2
+- Enable sources tarball validation using GPG signature.
 
-* Fri Sep 20 2019 RDO <dev@lists.rdoproject.org> 0.17.0-1
-- Update to 0.17.0
+* Fri Sep 18 2020 RDO <dev@lists.rdoproject.org> 1.5.0-1
+- Update to 1.5.0
 
