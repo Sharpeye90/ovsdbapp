@@ -1,4 +1,4 @@
-%{!?sources_gpg: %{!?dlrn:%global sources_gpg 1} }
+%{!?sources_gpg: %{!?dlrn:%global sources_gpg 0} }
 %global sources_gpg_sign 0x2426b928085a020d8a90d0d879ab7008d0896c8a
 %{!?upstream_version: %global upstream_version %{version}%{?milestone}}
 
@@ -43,17 +43,17 @@ BuildRequires:  git
 
 %package -n python3-%{library}
 Summary:    Python OVSDB Application Library
-%{?python_provide:%python_provide python3-%{library}}
 Requires:   python3-openvswitch
-Requires:   python3-pbr
-Requires:   python3-netaddr >= 0.7.18
+Requires:   python36-pbr
+Requires:   python36-netaddr >= 0.7.18
+Obsoletes:  python36-ovsdbapp < 1.6.0
 
-BuildRequires:  python3-devel
-BuildRequires:  python3-pbr
-BuildRequires:  python3-setuptools
-BuildRequires:  python3-mock
+BuildRequires:  python%{python3_pkgversion}-devel
+BuildRequires:  python36-pbr
+BuildRequires:  python%{python3_pkgversion}-setuptools
+BuildRequires:  python36-mock
 BuildRequires:  python3-openvswitch
-BuildRequires:  python3-netaddr >= 0.7.18
+BuildRequires:  python36-netaddr >= 0.7.18
 
 %description -n python3-%{library}
 %{common_desc}
