@@ -30,6 +30,7 @@ Source102:        https://releases.openstack.org/_static/%{sources_gpg_sign}.txt
 %endif
 
 Patch0:     0001-nb-fix-port-KeyError-in-lr_route_add.patch
+Patch1:     0002-nb-set-chassis_name-for-new-gateway-chassis.patch
 
 BuildArch:  noarch
 
