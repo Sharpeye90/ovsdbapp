@@ -29,6 +29,8 @@ Source101:        http://tarballs.openstack.org/%{library}/%{library}-%{upstream
 Source102:        https://releases.openstack.org/_static/%{sources_gpg_sign}.txt
 %endif
 
+Patch0:     0001-nb-fix-port-KeyError-in-lr_route_add.patch
+
 BuildArch:  noarch
 
 # Required for tarball sources verification
@@ -77,7 +79,8 @@ This package contains the documentation.
 %if 0%{?sources_gpg} == 1
 %{gpgverify}  --keyring=%{SOURCE102} --signature=%{SOURCE101} --data=%{SOURCE0}
 %endif
-%autosetup -n %{library}-%{upstream_version} -S git
+%autosetup -n %{library}-%{upstream_version} -S git -p 1
+
 
 %build
 %{py3_build}

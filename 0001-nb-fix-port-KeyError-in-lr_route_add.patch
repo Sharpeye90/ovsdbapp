@@ -1,0 +1,34 @@
+From 78b9381cf3eb2e997203887b294e23acdf01cedc Mon Sep 17 00:00:00 2001
+From: Anton Vazhnetsov <AVazhnetsov@croc.ru>
+Date: Thu, 29 Apr 2021 20:32:31 +0300
+Subject: [PATCH] nb: fix 'port' KeyError in lr_route_add
+
+---
+ ovsdbapp/schema/ovn_northbound/commands.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ovsdbapp/schema/ovn_northbound/commands.py b/ovsdbapp/schema/ovn_northbound/commands.py
+index 7c1808c..64c198d 100644
+--- a/ovsdbapp/schema/ovn_northbound/commands.py
++++ b/ovsdbapp/schema/ovn_northbound/commands.py
+@@ -863,7 +863,7 @@ class LrRouteAddCommand(cmd.BaseCommand):
+                 route.nexthop = self.nexthop
+                 route.policy = self.policy
+                 if self.port:
+-                    route.port = self.port
++                    route.output_port = self.port
+                 self.result = rowview.RowView(route)
+                 return
+         route = txn.insert(self.api.tables['Logical_Router_Static_Route'])
+@@ -871,7 +871,7 @@ class LrRouteAddCommand(cmd.BaseCommand):
+         route.nexthop = self.nexthop
+         route.policy = self.policy
+         if self.port:
+-            route.port = self.port
++            route.output_port = self.port
+         lr.addvalue('static_routes', route)
+         self.result = route.uuid
+ 
+-- 
+2.26.2
+
