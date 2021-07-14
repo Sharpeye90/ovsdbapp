@@ -1,0 +1,24 @@
+From 3c173f2b9bb99093e8fa102676e79bb3f16e5b3a Mon Sep 17 00:00:00 2001
+From: Anton Vazhnetsov <AVazhnetsov@croc.ru>
+Date: Wed, 14 Jul 2021 13:43:02 +0300
+Subject: [PATCH] nb: set chassis_name for new gateway chassis
+
+---
+ ovsdbapp/schema/ovn_northbound/commands.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ovsdbapp/schema/ovn_northbound/commands.py b/ovsdbapp/schema/ovn_northbound/commands.py
+index 3f4d75c..65e8fb1 100644
+--- a/ovsdbapp/schema/ovn_northbound/commands.py
++++ b/ovsdbapp/schema/ovn_northbound/commands.py
+@@ -1381,6 +1381,7 @@ class GatewayChassisAddCommand(cmd.AddCommand):
+             # since 'name' is indexed
+             gwc = txn.insert(self.api.tables[self.table_name])
+             gwc.name = self.name
++            gwc.chassis_name = self.chassis_name
+         gwc.priority = self.priority
+         self.set_columns(gwc, **self.columns)
+         self.result = gwc
+-- 
+2.26.2
+
