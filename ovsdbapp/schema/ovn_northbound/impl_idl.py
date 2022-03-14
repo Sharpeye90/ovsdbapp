@@ -80,10 +80,30 @@ class OvnNbApiIdlImpl(ovs_idl.Backend, api.API):
     def pg_acl_list(self, port_group):
         return cmd.PgAclListCommand(self, port_group)
 
+    def address_set_add(self, name, addresses=None, may_exist=False):
+        return cmd.AddressSetAddCommand(self, name, addresses, may_exist)
+
+    def address_set_del(self, address_set, if_exists=False):
+        return cmd.AddressSetDelCommand(self, address_set, if_exists)
+
+    def address_set_get(self, address_set):
+        return cmd.AddressSetGetCommand(self, address_set)
+
+    def address_set_list(self):
+        return cmd.AddressSetListCommand(self)
+
+    def address_set_add_addresses(self, address_set, addresses):
+        return cmd.AddressSetAddAddressesCommand(self, address_set, addresses)
+
+    def address_set_remove_addresses(self, address_set, addresses):
+        return cmd.AddressSetRemoveAddressCommand(self, address_set, addresses)
+
     def qos_add(self, switch, direction, priority, match, rate=None,
-                burst=None, dscp=None, may_exist=False, **columns):
+                burst=None, dscp=None, external_ids_match=None,
+                may_exist=False, **columns):
         return cmd.QoSAddCommand(self, switch, direction, priority, match,
-                                 rate, burst, dscp, may_exist, **columns)
+                                 rate, burst, dscp, external_ids_match,
+                                 may_exist, **columns)
 
     def qos_del(self, switch, direction=None, priority=None, match=None,
                 if_exists=True):
@@ -252,6 +272,28 @@ class OvnNbApiIdlImpl(ovs_idl.Backend, api.API):
 
     def lb_list(self):
         return cmd.LbListCommand(self)
+
+    def lb_get(self, lb):
+        return cmd.LbGetCommand(self, lb)
+
+    def lb_add_health_check(self, lb, vip, **options):
+        return cmd.LbAddHealthCheckCommand(self, lb, vip, **options)
+
+    def lb_del_health_check(self, lb, hc_uuid, if_exists=False):
+        return cmd.LbDelHealthCheckCommand(self, lb, hc_uuid, if_exists)
+
+    def lb_add_ip_port_mapping(self, lb, endport_ip, port_name, source_ip):
+        return cmd.LbAddIpPortMappingСommand(self, lb, endport_ip,
+                                             port_name, source_ip)
+
+    def lb_del_ip_port_mapping(self, lb, endport_ip):
+        return cmd.LbDelIpPortMappingCommand(self, lb, endport_ip)
+
+    def health_check_set_options(self, hc_uuid, **options):
+        return cmd.HealthCheckSetOptionsCommand(self, hc_uuid, **options)
+
+    def health_check_get_options(self, hc_uuid):
+        return cmd.HealthCheckGetOptionsCommand(self, hc_uuid)
 
     def lr_lb_add(self, router, lb, may_exist=False):
         return cmd.LrLbAddCommand(self, router, lb, may_exist)

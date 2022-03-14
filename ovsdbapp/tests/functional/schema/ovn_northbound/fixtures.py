@@ -10,7 +10,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from ovsdbapp.schema.ovn_northbound import impl_idl
 from ovsdbapp.tests.functional.schema import fixtures
+
+
+class NbApiFixture(fixtures.ApiImplFixture):
+    api_cls = impl_idl.OvnNbApiIdlImpl
 
 
 class LogicalSwitchFixture(fixtures.ImplIdlFixture):
@@ -43,6 +48,11 @@ class DnsFixture(fixtures.ImplIdlFixture):
 class PortGroupFixture(fixtures.ImplIdlFixture):
     create = 'pg_add'
     delete = 'pg_del'
+
+
+class AddressSetFixture(fixtures.ImplIdlFixture):
+    create = 'address_set_add'
+    delete = 'address_set_del'
 
 
 class MeterFixture(fixtures.ImplIdlFixture):

@@ -214,11 +214,94 @@ class PgAclListCommand(_AclListHelper):
     lookup_table = 'Port_Group'
 
 
+class AddressSetAddCommand(cmd.AddCommand):
+    table_name = 'Address_Set'
+
+    def __init__(self, api, name, addresses=None, may_exist=False):
+        super().__init__(api)
+        self.name = name
+        self.addresses = [str(netaddr.IPAddress(address))
+                          for address in addresses or []]
+        self.may_exist = may_exist
+
+    def run_idl(self, txn):
+        address_set = self.api.lookup(self.table_name, self.name, None)
+        if address_set:
+            if self.may_exist:
+                self.result = rowview.RowView(address_set)
+                return
+            raise RuntimeError("Address set %s exists" % self.name)
+
+        address_set = txn.insert(self.api.tables[self.table_name])
+        address_set.name = self.name
+        if self.addresses:
+            address_set.addresses = self.addresses
+        self.result = address_set.uuid
+
+
+class AddressSetDelCommand(cmd.BaseCommand):
+    table_name = 'Address_Set'
+
+    def __init__(self, api, address_set, if_exists=False):
+        super().__init__(api)
+        self.address_set = address_set
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        try:
+            address_set = self.api.lookup(self.table_name, self.address_set)
+            address_set.delete()
+        except idlutils.RowNotFound as e:
+            if self.if_exists:
+                return
+            msg = "Address set %s does not exist" % self.address_set
+            raise RuntimeError(msg) from e
+
+
+class AddressSetGetCommand(cmd.BaseGetRowCommand):
+    table = 'Address_Set'
+
+
+class AddressSetListCommand(cmd.ReadOnlyCommand):
+    table = 'Address_Set'
+
+    def run_idl(self, txn):
+        self.result = [rowview.RowView(r) for
+                       r in self.api.tables[self.table].rows.values()]
+
+
+class AddressSetUpdateAddressesCommand(cmd.BaseCommand):
+    table_name = 'Address_Set'
+
+    def __init__(self, api, address_set, addresses):
+        super().__init__(api)
+        self.address_set = address_set
+        if isinstance(addresses, (str, bytes)):
+            addresses = [addresses]
+        self.addresses = [str(netaddr.IPAddress(address))
+                          for address in addresses]
+
+
+class AddressSetAddAddressesCommand(AddressSetUpdateAddressesCommand):
+    def run_idl(self, txn):
+        address_set = self.api.lookup(self.table_name, self.address_set)
+        for address in self.addresses:
+            address_set.addvalue('addresses', address)
+
+
+class AddressSetRemoveAddressCommand(AddressSetUpdateAddressesCommand):
+    def run_idl(self, txn):
+        address_set = self.api.lookup(self.table_name, self.address_set)
+        for address in self.addresses:
+            address_set.delvalue('addresses', address)
+
+
 class QoSAddCommand(cmd.AddCommand):
     table_name = 'QoS'
 
     def __init__(self, api, switch, direction, priority, match, rate=None,
-                 burst=None, dscp=None, may_exist=False, **columns):
+                 burst=None, dscp=None, external_ids_match=None,
+                 may_exist=False, **columns):
         if direction not in ('from-lport', 'to-lport'):
             raise TypeError("direction must be either from-lport or to-lport")
         if not 0 <= priority <= const.ACL_PRIORITY_MAX:
@@ -235,6 +318,9 @@ class QoSAddCommand(cmd.AddCommand):
                              dscp, const.QOS_DSCP_MAX)
         if rate is None and dscp is None:
             raise ValueError("One of the rate or dscp must be configured")
+        if (external_ids_match is not None and
+                not isinstance(external_ids_match, dict)):
+            raise ValueError("external_ids_match must be None or a dictionary")
         super().__init__(api)
         self.switch = switch
         self.direction = direction
@@ -245,8 +331,12 @@ class QoSAddCommand(cmd.AddCommand):
         self.dscp = dscp
         self.may_exist = may_exist
         self.columns = columns
+        self.external_ids_match = external_ids_match
 
     def qos_match(self, row):
+        if self.external_ids_match:
+            return self.external_ids_match.items() <= row.external_ids.items()
+
         return (self.direction == row.direction and
                 self.priority == row.priority and
                 self.match == row.match)
@@ -255,10 +345,13 @@ class QoSAddCommand(cmd.AddCommand):
         ls = self.api.lookup('Logical_Switch', self.switch)
         for qos_rule in iter(r for r in ls.qos_rules if self.qos_match(r)):
             if self.may_exist:
-                self.result = rowview.RowView(qos_rule)
-                return
+                return self._update_qos(qos_rule)
             raise RuntimeError("QoS (%s, %s, %s) already exists" % (
                 self.direction, self.priority, self.match))
+
+        self._create_qos(txn, ls)
+
+    def _create_qos(self, txn, ls):
         row = txn.insert(self.api.tables[self.table_name])
         row.direction = self.direction
         row.priority = self.priority
@@ -272,6 +365,30 @@ class QoSAddCommand(cmd.AddCommand):
         self.set_columns(row, **self.columns)
         ls.addvalue('qos_rules', row)
         self.result = row.uuid
+
+    def _update_qos(self, qos_rule):
+        qos_rule.direction = self.direction
+        qos_rule.priority = self.priority
+        qos_rule.match = self.match
+        if self.rate:
+            qos_rule.setkey('bandwidth', 'rate', self.rate)
+            if self.burst:
+                qos_rule.setkey('bandwidth', 'burst', self.burst)
+            else:
+                qos_rule.delkey('bandwidth', 'burst')
+        else:
+            qos_rule.delkey('bandwidth', 'rate')
+            qos_rule.delkey('bandwidth', 'burst')
+
+        if self.dscp:
+            qos_rule.setkey('action', 'dscp', self.dscp)
+        else:
+            qos_rule.delkey('action', 'dscp')
+
+        for column, value in self.columns.items():
+            if getattr(qos_rule, column) != value:
+                self.set_column(qos_rule, column, value)
+        self.result = qos_rule.uuid
 
 
 class QoSDelCommand(cmd.BaseCommand):
@@ -328,8 +445,7 @@ class QoSDelExtIdCommand(cmd.BaseCommand):
 
     def run_idl(self, txn):
         try:
-            lswitch = idlutils.row_by_value(self.api.idl, 'Logical_Switch',
-                                            'name', self.lswitch)
+            lswitch = self.api.lookup('Logical_Switch', self.lswitch)
         except idlutils.RowNotFound as e:
             if self.if_exists:
                 return
@@ -579,29 +695,12 @@ class LspGetTypeCommand(cmd.ReadOnlyCommand):
         self.result = lsp.type
 
 
-class LspSetOptionsCommand(cmd.BaseCommand):
+class LspSetOptionsCommand(cmd.BaseSetOptionsCommand):
     table = 'Logical_Switch_Port'
 
-    def __init__(self, api, port, **options):
-        super().__init__(api)
-        self.port = port
-        self.options = options
 
-    def run_idl(self, txn):
-        lsp = self.api.lookup(self.table, self.port)
-        lsp.options = self.options
-
-
-class LspGetOptionsCommand(cmd.ReadOnlyCommand):
+class LspGetOptionsCommand(cmd.BaseGetOptionsCommand):
     table = 'Logical_Switch_Port'
-
-    def __init__(self, api, port):
-        super().__init__(api)
-        self.port = port
-
-    def run_idl(self, txn):
-        lsp = self.api.lookup(self.table, self.port)
-        self.result = lsp.options
 
 
 class LspSetDhcpV4OptionsCommand(cmd.BaseCommand):
@@ -662,25 +761,12 @@ class DhcpOptionsGetCommand(cmd.BaseGetRowCommand):
     table = 'DHCP_Options'
 
 
-class DhcpOptionsSetOptionsCommand(cmd.BaseCommand):
-    def __init__(self, api, dhcpopt_uuid, **options):
-        super().__init__(api)
-        self.dhcpopt_uuid = dhcpopt_uuid
-        self.options = options
-
-    def run_idl(self, txn):
-        dhcpopt = self.api.lookup('DHCP_Options', self.dhcpopt_uuid)
-        dhcpopt.options = self.options
+class DhcpOptionsSetOptionsCommand(cmd.BaseSetOptionsCommand):
+    table = 'DHCP_Options'
 
 
-class DhcpOptionsGetOptionsCommand(cmd.ReadOnlyCommand):
-    def __init__(self, api, dhcpopt_uuid):
-        super().__init__(api)
-        self.dhcpopt_uuid = dhcpopt_uuid
-
-    def run_idl(self, txn):
-        dhcpopt = self.api.lookup('DHCP_Options', self.dhcpopt_uuid)
-        self.result = dhcpopt.options
+class DhcpOptionsGetOptionsCommand(cmd.BaseGetOptionsCommand):
+    table = 'DHCP_Options'
 
 
 class LrAddCommand(cmd.BaseCommand):
@@ -841,12 +927,65 @@ class LrpGetEnabledCommand(cmd.ReadOnlyCommand):
         self.result = next(iter(lrp.enabled), True)
 
 
-class LrpSetOptionsCommand(LspSetOptionsCommand):
+class LrpSetOptionsCommand(cmd.BaseSetOptionsCommand):
     table = 'Logical_Router_Port'
 
 
-class LrpGetOptionsCommand(LspGetOptionsCommand):
+class LrpGetOptionsCommand(cmd.BaseGetOptionsCommand):
     table = 'Logical_Router_Port'
+
+
+class LrpSetGatewayChassisCommand(cmd.BaseCommand):
+    table = 'Logical_Router_Port'
+
+    def __init__(self, api, port, gateway_chassis, priority):
+        super().__init__(api)
+        self.port = port
+        self.gateway_chassis = gateway_chassis
+        self.priority = priority
+
+    def run_idl(self, txn):
+        lrp = self.api.lookup(self.table, self.port)
+        gwc_name = '%s_%s' % (lrp.name, self.gateway_chassis)
+        cmd = GatewayChassisAddCommand(self.api, gwc_name,
+                                       self.gateway_chassis,
+                                       self.priority, may_exist=True)
+        cmd.run_idl(txn)
+        lrp.addvalue('gateway_chassis', cmd.result)
+
+
+class LrpGetGatewayChassisCommand(cmd.ReadOnlyCommand):
+    table = 'Logical_Router_Port'
+
+    def __init__(self, api, port):
+        super().__init__(api)
+        self.port = port
+
+    def run_idl(self, txn):
+        lrp = self.api.lookup(self.table, self.port)
+        self.result = [rowview.RowView(d) for d in lrp.gateway_chassis]
+
+
+class LrpDelGatewayChassisCommand(cmd.BaseCommand):
+    table = 'Logical_Router_Port'
+
+    def __init__(self, api, port, gateway_chassis, if_exists=False):
+        super().__init__(api)
+        self.port = port
+        self.gateway_chassis = gateway_chassis
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        lrp = self.api.lookup(self.table, self.port)
+        for gwc in lrp.gateway_chassis:
+            if gwc.chassis_name == self.gateway_chassis:
+                lrp.delvalue('gateway_chassis', gwc)
+                return
+
+        if not self.if_exists:
+            msg = "Gateway chassis '%s' on port %s does not exist" % (
+                self.gateway_chassis, self.port)
+            raise RuntimeError(msg)
 
 
 class LrpSetGatewayChassisCommand(cmd.BaseCommand):
@@ -1267,6 +1406,100 @@ class LbListCommand(cmd.ReadOnlyCommand):
     def run_idl(self, txn):
         self.result = [rowview.RowView(r)
                        for r in self.api.tables['Load_Balancer'].rows.values()]
+
+
+class LbGetCommand(cmd.BaseGetRowCommand):
+    table = 'Load_Balancer'
+
+
+class LbAddHealthCheckCommand(cmd.BaseCommand):
+    table = 'Load_Balancer'
+
+    def __init__(self, api, lb, vip, **options):
+        super().__init__(api)
+        self.lb = lb
+        self.vip = vip
+        self.options = options
+
+    def run_idl(self, txn):
+        lb = self.api.lookup(self.table, self.lb)
+        cmd = HealthCheckAddCommand(self.api, self.vip, **self.options)
+        cmd.run_idl(txn)
+        lb.addvalue('health_check', cmd.result)
+
+
+class LbDelHealthCheckCommand(cmd.BaseCommand):
+    table = 'Load_Balancer'
+
+    def __init__(self, api, lb, hc_uuid, if_exists=False):
+        super().__init__(api)
+        self.lb = lb
+        self.hc_uuid = hc_uuid
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        lb = self.api.lookup(self.table, self.lb)
+        for health_check in lb.health_check:
+            if health_check.uuid == self.hc_uuid:
+                lb.delvalue('health_check', health_check)
+                health_check.delete()
+                return
+        if not self.if_exists:
+            msg = "Health check '%s' on lb %s does not exist" % (
+                self.hc_uuid, self.lb)
+            raise RuntimeError(msg)
+
+
+class LbAddIpPortMappingСommand(cmd.BaseCommand):
+    table = 'Load_Balancer'
+
+    def __init__(self, api, lb, endpoint_ip, port_name, source_ip):
+        super().__init__(api)
+        self.lb = lb
+        self.endpoint_ip = str(netaddr.IPAddress(endpoint_ip))
+        self.port_name = port_name
+        self.source_ip = str(netaddr.IPAddress(source_ip))
+
+    def run_idl(self, txn):
+        lb = self.api.lookup(self.table, self.lb)
+        lb.setkey('ip_port_mappings', self.endpoint_ip,
+                  '%s:%s' % (self.port_name, self.source_ip))
+
+
+class LbDelIpPortMappingCommand(cmd.BaseCommand):
+    table = 'Load_Balancer'
+
+    def __init__(self, api, lb, endpoint_ip):
+        super().__init__(api)
+        self.lb = lb
+        self.endpoint_ip = str(netaddr.IPAddress(endpoint_ip))
+
+    def run_idl(self, txn):
+        lb = self.api.lookup(self.table, self.lb)
+        lb.delkey('ip_port_mappings', self.endpoint_ip)
+
+
+class HealthCheckAddCommand(cmd.AddCommand):
+    table_name = 'Load_Balancer_Health_Check'
+
+    def __init__(self, api, vip, **options):
+        super().__init__(api)
+        self.vip = utils.normalize_ip_port(vip)
+        self.options = options
+
+    def run_idl(self, txn):
+        hc = txn.insert(self.api.tables[self.table_name])
+        hc.vip = self.vip
+        hc.options = self.options
+        self.result = hc
+
+
+class HealthCheckSetOptionsCommand(cmd.BaseSetOptionsCommand):
+    table = 'Load_Balancer_Health_Check'
+
+
+class HealthCheckGetOptionsCommand(cmd.BaseGetOptionsCommand):
+    table = 'Load_Balancer_Health_Check'
 
 
 class LrLbAddCommand(cmd.BaseCommand):

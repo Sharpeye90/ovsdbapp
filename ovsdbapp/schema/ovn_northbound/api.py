@@ -207,6 +207,68 @@ class API(api.API, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
+    def address_set_add(self, name, addresses=None, may_exist=False):
+        """Create a set of addresses named 'name'
+
+        :param name:      The name of the address set
+        :type name:       string
+        :param addresses: One or more IP addresses to add to the address set
+        :type addresses:  list of strings
+        :param may_exist: If True, don't fail if the address set already exists
+        :type may_exist:  boolean
+        :returns:         :class:`Command` with RowView result
+        """
+
+    @abc.abstractmethod
+    def address_set_del(self, address_set, if_exists=False):
+        """Delete a set of addresses 'address_set'
+
+        :param address_set: The name of the address set
+        :type address_set:  string or uuid.UUID
+        :param if_exists:   Do not fail if the Address_set row does not exist
+        :type if_exists:    bool
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def address_set_get(self, address_set):
+        """Get a set of addresses for 'address_set'
+
+        :param address_set: The name of the address set
+        :type address_set:  string or uuid.UUID
+        :returns:           :class:`Command` with RowView result
+        """
+
+    @abc.abstractmethod
+    def address_set_list(self):
+        """Get all sets of addresses
+
+        :returns: :class:`Command` with RowView list result
+        """
+
+    @abc.abstractmethod
+    def address_set_add_addresses(self, address_set, addresses):
+        """Add a list of addresses to 'address_set'
+
+        :param address_set: The name of the address set
+        :type address_set:  string or uuid.UUID
+        :param addresses:   One or more IP addresses to add to the address set
+        :type addresses:    string or list of strings
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def address_set_remove_addresses(self, address_set, addresses):
+        """Remove a list of addresses from 'address_set'
+
+        :param address_set: The name of the address set
+        :type address_set:  string or uuid.UUID
+        :param addresses:   One or more IP addresses to remove from address set
+        :type addresses:    string of list of strings
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
     def qos_add(self, switch, direction, priority, match, rate=None,
                 burst=None, dscp=None, may_exist=False, **columns):
         """Add an Qos rules to 'switch'
@@ -822,6 +884,88 @@ class API(api.API, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def lb_list(self):
         """Get the UUIDs of all load balanacers"""
+
+    @abc.abstractmethod
+    def lb_get(self, lb):
+        """Get load balancer for 'lb'
+
+        :returns: :class:`Command` with RowView result
+        """
+
+    @abc.abstractmethod
+    def lb_add_health_check(self, lb, vip, **options):
+        """Add health check for 'lb'
+
+        :param lb:      The name or uuid of a load balancer
+        :type lb:       string or uuid.UUID
+        :param vip:     A virtual IP
+        :type vip:      string
+        :param options: keys and values for the port 'options' dict
+        :type options:  key: string, value: string
+        :returns:       :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def lb_del_health_check(self, lb, hc_uuid, if_exists=False):
+        """Remove health check from 'lb'
+
+        :param lb:        The name or uuid of a load balancer
+        :type lb:         string or uuid.UUID
+        :param hc:        uuid of a load balancer
+        :type hc:         uuid.UUID
+        :param if_exists: If True, don't fail if the hc doesn't exist
+        :type if_exists:  boolean
+        :returns:         :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def lb_add_ip_port_mapping(self, lb, endpoint_ip, port_name, source_ip):
+        """Add IP port mapping to 'lb'
+
+        Maps from endpoint IP to a colon-separated pair of logical port name
+        and source IP, e.g. port_name:sourc_ip.
+
+        :param lb:          The name or uuid of a load balancer
+        :type lb:           string or uuid.UUID
+        :param endpoint_ip: IPv4 address
+        :type endpoint_ip:  string
+        :param port_name:   The name of a logical port
+        :type port_name:    string
+        :param source_ip:   IPv4 address
+        :type source_ip:    string
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def lb_del_ip_port_mapping(self, lb, endpoint_ip):
+        """Remove IP port mapping from 'lb'
+
+        :param lb:          The name or uuid of a load balancer
+        :type lb:           string or uuid.UUID
+        :param endpoint_ip: IPv4 address
+        :type endpoint_ip:  string
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def health_check_set_options(self, hc_uuid, **options):
+        """Set options to the 'health_check'
+
+        :param hc:      uuid of the health check
+        :type hc:       uuid.UUID
+        :param options: keys and values for the port 'options' dict
+        :type options:  key: string, value: string
+        :returns:       :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def health_check_get_options(self, hc_uuid):
+        """Get the options for 'health_check'
+
+        :param hc: uuid of the health check
+        :type hc:  uuid.UUID
+        :returns:  :class:`Command` with dict result
+        """
 
     @abc.abstractmethod
     def lr_lb_add(self, router, lb, may_exist=False):

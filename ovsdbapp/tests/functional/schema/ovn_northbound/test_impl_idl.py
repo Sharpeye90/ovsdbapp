@@ -12,10 +12,10 @@
 
 import netaddr
 import testscenarios
+import uuid
 
 from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp import constants as const
-from ovsdbapp.schema.ovn_northbound import impl_idl
 from ovsdbapp.tests.functional import base
 from ovsdbapp.tests.functional.schema.ovn_northbound import fixtures
 from ovsdbapp.tests import utils
@@ -27,7 +27,7 @@ class OvnNorthboundTest(base.FunctionalTestCase):
 
     def setUp(self):
         super(OvnNorthboundTest, self).setUp()
-        self.api = impl_idl.OvnNbApiIdlImpl(self.connection)
+        self.api = self.useFixture(fixtures.NbApiFixture(self.connection)).obj
 
 
 class TestLogicalSwitchOps(OvnNorthboundTest):
@@ -236,11 +236,121 @@ class TestAclOps(OvnNorthboundTest):
         self.assertIn(r2, acls)
 
 
+class TestAddressSetOps(OvnNorthboundTest):
+    def setUp(self):
+        super(TestAddressSetOps, self).setUp()
+        self.table = self.api.tables['Address_Set']
+
+    def _addr_set_add(self, name=None, *args, **kwargs):
+        if name is None:
+            name = utils.get_rand_name()
+        fix = self.useFixture(fixtures.AddressSetFixture(self.api, name,
+                                                         *args, **kwargs))
+        self.assertIn(fix.obj.uuid, self.table.rows)
+        return fix.obj
+
+    def _test_addr_set_get(self, col):
+        addr_set = self._addr_set_add()
+        val = getattr(addr_set, col)
+        found = self.api.address_set_get(val).execute(check_error=True)
+        self.assertEqual(addr_set, found)
+
+    def test_addr_set_get_uuid(self):
+        self._test_addr_set_get('uuid')
+
+    def test_addr_set_get_name(self):
+        self._test_addr_set_get('name')
+
+    def test_addr_set_add_name(self):
+        name = utils.get_rand_device_name()
+        addr_set = self._addr_set_add(name)
+        self.assertEqual(name, addr_set.name)
+
+    def test_addr_set_add_exists(self):
+        name = utils.get_rand_device_name()
+        self._addr_set_add(name)
+        cmd = self.api.address_set_add(name)
+        self.assertRaises(RuntimeError, cmd.execute, check_error=True)
+
+    def test_addr_set_add_may_exist(self):
+        name = utils.get_rand_device_name()
+        addr_set = self._addr_set_add(name)
+        addr_set2 = self.api.address_set_add(
+            name, may_exist=True).execute(check_error=True)
+        self.assertEqual(addr_set, addr_set2)
+
+    def test_addr_set_add_with_addresses(self):
+        addresses = ['192.168.0.1', '192.168.0.2']
+        addr_set = self._addr_set_add(addresses=addresses)
+        self.assertEqual(addresses, addr_set.addresses)
+
+    def test_addr_set_del(self):
+        addr_set = self._addr_set_add()
+        self.api.address_set_del(addr_set.uuid).execute(check_error=True)
+        self.assertNotIn(addr_set.uuid, self.table.rows)
+
+    def test_addr_set_del_by_name(self):
+        name = utils.get_rand_device_name()
+        self._addr_set_add(name)
+        self.api.address_set_del(name).execute(check_error=True)
+
+    def test_addr_set_del_no_exist(self):
+        name = utils.get_rand_device_name()
+        cmd = self.api.address_set_del(name)
+        self.assertRaises(RuntimeError, cmd.execute, check_error=True)
+
+    def test_addr_set_del_if_exists(self):
+        name = utils.get_rand_device_name()
+        self.api.address_set_del(
+            name, if_exists=True).execute(check_error=True)
+
+    def test_addr_set_list(self):
+        addr_sets = {self._addr_set_add() for _ in range(3)}
+        found_sets = set(self.api.address_set_list().execute(check_error=True))
+        self.assertTrue(addr_sets.issubset(found_sets))
+
+    def test_addr_set_add_addresses(self):
+        addresses = ['192.168.0.1', '192.168.0.2']
+        addr_set = self._addr_set_add()
+
+        self.api.address_set_add_addresses(
+            addr_set.uuid, addresses).execute(check_error=True)
+        self.assertEqual(addresses, addr_set.addresses)
+
+        self.api.address_set_add_addresses(
+            addr_set.uuid, addresses).execute(check_error=True)
+        self.assertEqual(addresses, addr_set.addresses)
+
+    def test_addr_set_remove_addresses(self):
+        addresses = ['192.168.0.1', '192.168.0.2']
+        addr_set = self._addr_set_add(addresses=addresses)
+
+        self.api.address_set_remove_addresses(
+            addr_set.uuid, addresses).execute(check_error=True)
+        self.assertEqual(addr_set.addresses, [])
+
+        self.api.address_set_remove_addresses(
+            addr_set.uuid, addresses).execute(check_error=True)
+        self.assertEqual(addr_set.addresses, [])
+
+    def test_addr_set_add_remove_addresses_by_str(self):
+        address = "192.168.0.1"
+        addr_set = self._addr_set_add()
+
+        self.api.address_set_add_addresses(
+            addr_set.uuid, address).execute(check_error=True)
+        self.assertEqual([address], addr_set.addresses)
+
+        self.api.address_set_remove_addresses(
+            addr_set.uuid, address).execute(check_error=True)
+        self.assertEqual([], addr_set.addresses)
+
+
 class TestQoSOps(OvnNorthboundTest):
     def setUp(self):
         super(TestQoSOps, self).setUp()
         self.switch = self.useFixture(
-            fixtures.LogicalSwitchFixture(self.api)).obj
+            fixtures.LogicalSwitchFixture(self.api, name='LS_for_QoS')).obj
 
     def _qos_add(self, *args, **kwargs):
         cmd = self.api.qos_add(self.switch.uuid, *args, **kwargs)
@@ -252,7 +362,7 @@ class TestQoSOps(OvnNorthboundTest):
         self.assertEqual(cmd.rate, row.bandwidth.get('rate', None))
         self.assertEqual(cmd.burst, row.bandwidth.get('burst', None))
         self.assertEqual(cmd.dscp, row.action.get('dscp', None))
-        return row
+        return idlutils.frozen_row(row)
 
     def test_qos_add_dscp(self):
         self._qos_add('from-lport', 0, 'output == "fake_port" && ip', dscp=33)
@@ -287,9 +397,80 @@ class TestQoSOps(OvnNorthboundTest):
 
     def test_qos_add_may_exist(self):
         args = ('from-lport', 0, 'output == "fake_port" && ip', 1000)
-        row = self._qos_add(*args)
-        row2 = self._qos_add(*args, may_exist=True)
+        row = self._qos_add(*args, external_ids={'port_id': '1'})
+        row2 = self._qos_add(*args, external_ids={'port_id': '1'},
+                             may_exist=True)
         self.assertEqual(row, row2)
+
+    def test_qos_add_may_exist_update_using_external_ids_match(self):
+        args = ('from-lport', 0, 'output == "fake_port" && ip')
+        kwargs = {'rate': 1000, 'burst': 800, 'dscp': 16,
+                  'external_ids': {'port_id': '1'}}
+        row = self._qos_add(*args, **kwargs)
+
+        # Update QoS parameters: rate, burst and DSCP.
+        kwargs = {'rate': 1200, 'burst': 900, 'dscp': 24}
+        row2 = self._qos_add(*args, external_ids_match={'port_id': '1'},
+                             may_exist=True, **kwargs)
+        self.assertEqual(row.uuid, row2.uuid)
+        self.assertEqual(row2.bandwidth, {'rate': 1200, 'burst': 900})
+        self.assertEqual(row2.action, {'dscp': 24})
+
+        # Remove QoS parameters.
+        kwargs = {'rate': 1500, 'burst': 1100}
+        row3 = self._qos_add(*args, external_ids_match={'port_id': '1'},
+                             may_exist=True, **kwargs)
+        self.assertEqual(row.uuid, row3.uuid)
+        self.assertEqual(row3.bandwidth, {'rate': 1500, 'burst': 1100})
+        self.assertEqual(row3.action, {})
+
+        kwargs = {'rate': 2000}
+        row4 = self._qos_add(*args, external_ids_match={'port_id': '1'},
+                             may_exist=True, **kwargs)
+        self.assertEqual(row.uuid, row4.uuid)
+        self.assertEqual(row4.bandwidth, {'rate': 2000})
+        self.assertEqual(row4.action, {})
+
+        kwargs = {'dscp': 16}
+        row5 = self._qos_add(*args, external_ids_match={'port_id': '1'},
+                             may_exist=True, **kwargs)
+        self.assertEqual(row.uuid, row5.uuid)
+        self.assertEqual(row5.bandwidth, {})
+        self.assertEqual(row5.action, {'dscp': 16})
+
+    def test_qos_add_may_exist_using_external_ids_match(self):
+        _uuid = str(uuid.uuid4())
+        _uuid2 = str(uuid.uuid4())
+        for key in ('neutron:port_id', 'neutron:fip_id'):
+            args = ('from-lport', 0, 'output == "fake_port" && ip')
+            kwargs = {'rate': 1000, 'burst': 800, 'dscp': 16}
+            self._qos_add(*args, external_ids={key: _uuid}, **kwargs)
+
+            # "args" in this second call are different, "QoSAddCommand" will
+            # use the "external_ids_match" reference passed instead to match
+            # the QoS rules.
+            args = ('from-lport', 1, 'output == "fake_port" && ip')
+            self._qos_add(*args, external_ids_match={key: _uuid},
+                          may_exist=True, **kwargs)
+            qos_rules = self.api.qos_list(self.switch.uuid).execute(
+                check_error=True)
+            self.assertEqual(1, len(qos_rules))
+
+            # This call will update the "external_ids" to "_uuid2". Before
+            # changing it, "_uuid" will be used to find the register.
+            self._qos_add(*args, external_ids_match={key: _uuid},
+                          external_ids={key: _uuid2}, may_exist=True, **kwargs)
+            qos_rules = self.api.qos_list(self.switch.uuid).execute(
+                check_error=True)
+            self.assertEqual(1, len(qos_rules))
+
+            # The deletion call uses "_uuid2" because it was changed in the
+            # previous call.
+            self.api.qos_del_ext_ids(self.switch.name,
+                                     {key: _uuid2}).execute(check_error=True)
+            qos_rules = self.api.qos_list(self.switch.uuid).execute(
+                check_error=True)
+            self.assertEqual(0, len(qos_rules))
 
     def test_qos_add_extids(self):
         external_ids = {'mykey': 'myvalue', 'yourkey': 'yourvalue'}
@@ -308,8 +489,9 @@ class TestQoSOps(OvnNorthboundTest):
         r2 = self._qos_add('to-lport', 0, 'output == "fake_port"', 1000)
         self.api.qos_del(self.switch.uuid, 'from-lport').execute(
             check_error=True)
-        self.assertNotIn(r1, self.switch.qos_rules)
-        self.assertIn(r2, self.switch.qos_rules)
+        qos_rules = [idlutils.frozen_row(row) for row in self.switch.qos_rules]
+        self.assertNotIn(r1, qos_rules)
+        self.assertIn(r2, qos_rules)
 
     def test_qos_del_direction_priority_match(self):
         r1 = self._qos_add('from-lport', 0, 'output == "fake_port"', 1000)
@@ -317,8 +499,9 @@ class TestQoSOps(OvnNorthboundTest):
         cmd = self.api.qos_del(self.switch.uuid,
                                'from-lport', 0, 'output == "fake_port"')
         cmd.execute(check_error=True)
-        self.assertNotIn(r1, self.switch.qos_rules)
-        self.assertIn(r2, self.switch.qos_rules)
+        qos_rules = [idlutils.frozen_row(row) for row in self.switch.qos_rules]
+        self.assertNotIn(r1, qos_rules)
+        self.assertIn(r2, qos_rules)
 
     def test_qos_del_priority_without_match(self):
         self.assertRaises(TypeError, self.api.qos_del, self.switch.uuid,
@@ -340,6 +523,7 @@ class TestQoSOps(OvnNorthboundTest):
         r2 = self._qos_add('from-lport', 1, 'output == "fake_port2"', 1000)
         qos_rules = self.api.qos_list(self.switch.uuid).execute(
             check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertIn(r1, qos_rules)
         self.assertIn(r2, qos_rules)
 
@@ -354,18 +538,23 @@ class TestQoSOps(OvnNorthboundTest):
                                    dscp=10)
 
     def test_qos_delete_external_ids(self):
+        # NOTE(ralonsoh): the deletion method uses the LS name (first) and the
+        # UUID (second), in order to check that api.lookup() is working with
+        # both.
         self._create_fip_qoses()
         self.api.qos_del_ext_ids(self.switch.name,
                                  {'key1': 'value1'}).execute(check_error=True)
         qos_rules = self.api.qos_list(
             self.switch.uuid).execute(check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertCountEqual([self.qos_2, self.qos_3], qos_rules)
 
         self.api.qos_del_ext_ids(
-            self.switch.name,
+            self.switch.uuid,
             {'key3': 'value3', 'key4': 'value4'}).execute(check_error=True)
         qos_rules = self.api.qos_list(
             self.switch.uuid).execute(check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertCountEqual([self.qos_3], qos_rules)
 
     def test_qos_delete_external_ids_wrong_keys_or_values(self):
@@ -374,19 +563,22 @@ class TestQoSOps(OvnNorthboundTest):
                                  {'key_z': 'value1'}).execute(check_error=True)
         qos_rules = self.api.qos_list(
             self.switch.uuid).execute(check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertCountEqual([self.qos_1, self.qos_2, self.qos_3], qos_rules)
 
-        self.api.qos_del_ext_ids(self.switch.name,
+        self.api.qos_del_ext_ids(self.switch.uuid,
                                  {'key1': 'value_z'}).execute(check_error=True)
         qos_rules = self.api.qos_list(
             self.switch.uuid).execute(check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertCountEqual([self.qos_1, self.qos_2, self.qos_3], qos_rules)
 
         self.api.qos_del_ext_ids(
-            self.switch.name,
+            self.switch.uuid,
             {'key3': 'value3', 'key4': 'value_z'}).execute(check_error=True)
         qos_rules = self.api.qos_list(
             self.switch.uuid).execute(check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertCountEqual([self.qos_1, self.qos_2, self.qos_3], qos_rules)
 
     def test_qos_delete_external_ids_empty_dict(self):
@@ -404,6 +596,7 @@ class TestQoSOps(OvnNorthboundTest):
         # No qos rule has been deleted from the correct logical switch.
         qos_rules = self.api.qos_list(
             self.switch.uuid).execute(check_error=True)
+        qos_rules = [idlutils.frozen_row(row) for row in qos_rules]
         self.assertCountEqual([self.qos_1, self.qos_2, self.qos_3], qos_rules)
 
 
@@ -1141,6 +1334,18 @@ class TestLogicalRouterPortOps(OvnNorthboundTest):
         self.assertEqual(set(networks), set(lrp.networks))
         return lrp
 
+    def _test_lrp_get(self, col):
+        lrp = self._lrp_add(None)
+        val = getattr(lrp, col)
+        found = self.api.lrp_get(val).execute(check_error=True)
+        self.assertEqual(lrp, found)
+
+    def test_lrp_get_uuid(self):
+        self._test_lrp_get('uuid')
+
+    def test_lrp_get_name(self):
+        self._test_lrp_get('name')
+
     def test_lrp_add(self):
         self._lrp_add(None, 'de:ad:be:ef:4d:ad', ['192.0.2.0/24'])
 
@@ -1297,6 +1502,55 @@ class TestLogicalRouterPortOps(OvnNorthboundTest):
         self.assertEqual(options, self.api.lrp_get_options(lrp.uuid).execute(
             check_error=True))
 
+    def test_lrp_get_set_gateway_chassis(self):
+        lrp = self._lrp_add(None)
+        c1_name = utils.get_rand_device_name()
+        self.api.lrp_set_gateway_chassis(lrp.uuid, c1_name).execute(
+            check_error=True)
+        c1 = self.api.lookup('Gateway_Chassis', "%s_%s" % (lrp.name, c1_name))
+        lrp_gwcs = self.api.lrp_get_gateway_chassis(lrp.uuid).execute(
+            check_error=True)
+        self.assertIn(c1, lrp_gwcs)
+        self.assertEqual(c1.name, "%s_%s" % (lrp.name, c1_name))
+        self.assertEqual(c1.chassis_name, c1_name)
+        self.assertEqual(c1.priority, 0)
+
+    def test_lrp_set_multiple_gwc(self):
+        lrp = self._lrp_add(None)
+        c1_name, c2_name = [utils.get_rand_device_name() for _ in range(2)]
+        for gwc in [c1_name, c2_name]:
+            self.api.lrp_set_gateway_chassis(lrp.uuid, gwc).execute(
+                check_error=True)
+        c1 = self.api.lookup('Gateway_Chassis', "%s_%s" % (lrp.name, c1_name))
+        c2 = self.api.lookup('Gateway_Chassis', "%s_%s" % (lrp.name, c2_name))
+        lrp_gwcs = self.api.lrp_get_gateway_chassis(lrp.uuid).execute(
+            check_error=True)
+        self.assertIn(c1, lrp_gwcs)
+        self.assertIn(c2, lrp_gwcs)
+
+    def test_lrp_del_gateway_chassis(self):
+        c1_name = utils.get_rand_device_name()
+        lrp = self._lrp_add(None, gateway_chassis=[c1_name])
+        c1 = self.api.lookup('Gateway_Chassis', "%s_%s" % (lrp.name, c1_name))
+        self.assertEqual(lrp.gateway_chassis, [c1])
+        self.api.lrp_del_gateway_chassis(lrp.uuid, c1_name).execute(
+            check_error=True)
+        self.assertEqual(lrp.gateway_chassis, [])
+        self.assertRaises(idlutils.RowNotFound,
+                          self.api.lookup,
+                          'Gateway_Chassis', "%s_%s" % (lrp.name, c1_name))
+
+    def test_lrp_del_gateway_chassis_wrong_chassis(self):
+        lrp = self._lrp_add(None)
+        cmd = self.api.lrp_del_gateway_chassis(lrp.uuid, "fake_chassis")
+        self.assertRaises(RuntimeError, cmd.execute, check_error=True)
+
+    def test_lrp_del_gateway_chassis_if_exist(self):
+        lrp = self._lrp_add(None)
+        self.api.lrp_del_gateway_chassis(
+            lrp.uuid, "fake_chassis", if_exists=True
+        ).execute(check_error=True)
+
 
 class TestLoadBalancerOps(OvnNorthboundTest):
 
@@ -1414,6 +1668,109 @@ class TestLoadBalancerOps(OvnNorthboundTest):
                             ['10.0.0.1', '10.0.0.2']) for _ in range(3)}
         lbset = self.api.lb_list().execute(check_error=True)
         self.assertTrue(lbs.issubset(lbset))
+
+    def _test_lb_get(self, col):
+        lb = self._lb_add(utils.get_rand_device_name(),
+                          '192.0.0.1', ['10.0.0.1'])
+        val = getattr(lb, col)
+        found = self.api.lb_get(val).execute(check_error=True)
+        self.assertEqual(lb, found)
+
+    def test_lb_get_uuid(self):
+        self._test_lb_get('uuid')
+
+    def test_lb_get_name(self):
+        self._test_lb_get('name')
+
+    def _test_lb_add_del_health_check(self, col):
+        hc_options = {
+            'interval': '2',
+            'timeout': '10',
+            'success_count': '3',
+            'failure_count': '3',
+        }
+        hc_vip = '172.31.0.1'
+
+        lb = self._lb_add(utils.get_rand_device_name(),
+                          '192.0.0.1', ['10.0.0.1'])
+        self.assertEqual(lb.health_check, [])
+        val = getattr(lb, col)
+        self.api.lb_add_health_check(val,
+                                     hc_vip,
+                                     **hc_options).execute(check_error=True)
+        self.assertEqual(len(lb.health_check), 1)
+        hc = self.api.lookup('Load_Balancer_Health_Check',
+                             lb.health_check[0].uuid)
+        self.assertEqual(hc.vip, hc_vip)
+        self.assertEqual(hc.options, hc_options)
+
+        self.api.lb_del_health_check(val, hc.uuid).execute(check_error=True)
+        self.assertEqual(len(lb.health_check), 0)
+        self.assertNotIn(hc.uuid,
+                         self.api.tables['Load_Balancer_Health_Check'].rows)
+
+    def test_lb_add_del_health_check_uuid(self):
+        self._test_lb_add_del_health_check('uuid')
+
+    def test_lb_add_del_health_check_name(self):
+        self._test_lb_add_del_health_check('name')
+
+    def test_lb_del_health_check_if_exists(self):
+        lb = self._lb_add(utils.get_rand_device_name(),
+                          '192.0.0.1', ['10.0.0.1'])
+        self.api.lb_del_health_check(lb.name, uuid.uuid4(),
+                                     if_exists=True).execute(check_error=True)
+
+    def _test_lb_add_del_ip_port_mapping(self, col):
+        endpoint_ip = '172.31.0.4'
+        port_name = 'sw1-p1'
+        source_ip = '172.31.0.6'
+        lb = self._lb_add(utils.get_rand_device_name(),
+                          '192.0.0.1', ['10.0.0.1'])
+        self.assertEqual(lb.ip_port_mappings, {})
+        val = getattr(lb, col)
+        self.api.lb_add_ip_port_mapping(val,
+                                        endpoint_ip,
+                                        port_name,
+                                        source_ip).execute(check_error=True)
+        self.assertEqual(lb.ip_port_mappings[endpoint_ip],
+                         '%s:%s' % (port_name, source_ip))
+
+        self.api.lb_del_ip_port_mapping(val,
+                                        endpoint_ip).execute(check_error=True)
+        self.assertEqual(lb.ip_port_mappings, {})
+
+    def test_lb_add_del_ip_port_mapping_uuid(self):
+        self._test_lb_add_del_ip_port_mapping('uuid')
+
+    def test_lb_add_del_ip_port_mapping_name(self):
+        self._test_lb_add_del_ip_port_mapping('name')
+
+    def test_hc_get_set_options(self):
+        hc_options = {
+            'interval': '2',
+            'timeout': '10',
+            'success_count': '3',
+            'failure_count': '3',
+        }
+        lb = self._lb_add(utils.get_rand_device_name(),
+                          '192.0.0.1', ['10.0.0.1'])
+        self.api.lb_add_health_check(lb.uuid,
+                                     '172.31.0.1',
+                                     **hc_options).execute(check_error=True)
+        hc = self.api.lookup('Load_Balancer_Health_Check',
+                             lb.health_check[0].uuid)
+        options = self.api.health_check_get_options(
+            hc.uuid).execute(check_error=True)
+        self.assertEqual(hc_options, options)
+
+        options.update({
+            'interval': '5',
+            'new-option': 'option',
+        })
+        self.api.health_check_set_options(hc.uuid,
+                                          **options).execute(check_error=True)
+        self.assertEqual(hc.options, options)
 
 
 class TestObLbOps(testscenarios.TestWithScenarios, OvnNorthboundTest):
